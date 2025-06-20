@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Numeric
 from sqlalchemy.orm import relationship
-from database import Base
+from base import Base
+
 
 class Provider(Base):
     __tablename__ = "providers"
@@ -10,6 +11,7 @@ class Provider(Base):
     email = Column(String(255))
     
     games = relationship("Game", back_populates="provider")
+
 
 class Game(Base):
     __tablename__ = "games"

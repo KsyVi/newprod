@@ -6,14 +6,20 @@ from typing import Optional, List
 from pydantic import BaseModel
 
 from models import Game, Provider
-from database import get_db
+from database import get_db  
 
+from schemas import SearchResult
+
+from dotenv import load_dotenv
+import os
 app = FastAPI()
 
-class SearchResult(BaseModel):
-    games: List[int] = []
-    providers: List[int] = []
+load_dotenv() 
+database_url = os.getenv("DATABASE_URL")
+print(database_url)
 
+
+# Роут для поиска по играм и провайдерам
 @app.get("/search/", response_model=SearchResult)
 async def search(
     query: Optional[str] = Query(
@@ -27,15 +33,21 @@ async def search(
     result = SearchResult()
 
     if query:
-        # ILIKE = case-insensitive partial match
         like_pattern = f"%{query}%"
 
+        # Поиск по играм
         games_stmt = select(Game.id).where(func.lower(Game.title).ilike(func.lower(like_pattern)))
         games_result = await db.execute(games_stmt)
         result.games = [row[0] for row in games_result.fetchall()]
 
+        # Поиск по провайдерам
         providers_stmt = select(Provider.id).where(func.lower(Provider.name).ilike(func.lower(like_pattern)))
         providers_result = await db.execute(providers_stmt)
         result.providers = [row[0] for row in providers_result.fetchall()]
 
     return result
+
+# Простой тестовый маршрут
+@app.get("/")
+def read_root():
+    return {"message": "FastAPI + Docker + PostgreSQL"}
