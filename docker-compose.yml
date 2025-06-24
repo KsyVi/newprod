@@ -16,13 +16,13 @@ services:
     build: .
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
-      - .:/app
+      - .:/newprod
     ports:
       - "8000:8000"
     depends_on:
       - db
     environment:
-      DATABASE_URL: "postgresql+asyncpg://user:password@localhost/gamedb"
+      DATABASE_URL: "postgresql+asyncpg://fastapi_user:fastapi_pass@db/fastapi_db"
 
 
 volumes:

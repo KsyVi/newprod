@@ -3,7 +3,7 @@ FROM python:3.12-slim
 
 
 # Устанавливаем рабочую директорию в контейнере
-WORKDIR /app
+WORKDIR /newprod
 
 # Копируем файл с зависимостями
 COPY requirements.txt .

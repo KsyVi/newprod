@@ -1,12 +1,10 @@
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import declarative_base
-from base import Base
 
 # Адрес подключения к базе данных
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+asyncpg://user:password@db:5432/fastapi_db"  
+    "postgresql+asyncpg://fastapi_user:fastapi_pass@db/fastapi_db"  
 )
 
 # Создание асинхронного движка
