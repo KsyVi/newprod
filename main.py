@@ -4,6 +4,7 @@ from sqlalchemy.future import select
 from sqlalchemy import func
 from typing import Optional, List
 from pydantic import BaseModel
+from services.search_service import SearchService
 
 from models import Game, Provider
 from database import get_db  
@@ -12,7 +13,26 @@ from schemas import SearchResult
 
 from dotenv import load_dotenv
 import os
+
+
 app = FastAPI()
+
+search_service = SearchService() 
+@app.get("/search/", response_model=SearchResult)
+async def search(
+    query: Optional[str] = Query(None, min_length=2, max_length=100),
+    db: AsyncSession = Depends(get_db)
+):
+    if not query:
+        return {
+            "message": "No query provided",
+            "data": SearchResult().model_dump(),
+            "cache": False
+        }
+
+    return await search_service.search(query, db)
+
+
 
 load_dotenv() 
 database_url = os.getenv("DATABASE_URL")
