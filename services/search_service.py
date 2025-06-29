@@ -1,8 +1,10 @@
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+
+from cache import RedisCache
 from models import Game, Provider
 from schemas import SearchResult
-from cache import RedisCache
+
 
 class SearchService:
     def __init__(self):
