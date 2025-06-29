@@ -1,7 +1,9 @@
 # cache.py
 import json
-import redis
 import os
+
+import redis
+
 
 class RedisCache:
     def __init__(self):
