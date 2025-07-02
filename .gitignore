@@ -4,7 +4,7 @@ __pycache__/
 *$py.class
 
 # Виртуальное окружение (если в папке venv, env или .env)
-venv/
+.venv/
 env/
 .env/
 
