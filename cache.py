@@ -2,17 +2,24 @@
 import json
 import os
 
-import redis
+from redis import asyncio as redis
 
 
 class RedisCache:
     def __init__(self):
-        redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
-        self.client = redis.from_url(redis_url)
+        self.redis = None
 
-    def get(self, key: str):
-        data = self.client.get(key)
-        return json.loads(data) if data else None
+    async def init(self):
+        self.redis = await redis.from_url(
+            f"redis://redis:6379/0",
+            decode_responses=True,
+            max_connections=10,
+        )
 
-    def set(self, key: str, value, expire: int = 300):
-        self.client.set(key, json.dumps(value), ex=expire)
+    async def get(self, key: str):
+        return await self.redis.get(key)
+
+    async def set(self, key: str, value, expire: int = 300):
+        await self.redis.set(key, json.dumps(value), ex=expire)
+
+cache = RedisCache()
