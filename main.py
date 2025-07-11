@@ -1,73 +1,45 @@
-from fastapi import FastAPI, Depends, Query
+
+import json
+from typing import Optional
+
+from fastapi import Depends, FastAPI, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy import func
-from typing import Optional, List
-from pydantic import BaseModel
+
+from database import get_db
+from schemas import SearchResult
+from cache import cache
 from services.search_service import SearchService
 
-from models import Game, Provider
-from database import get_db  
-
-from schemas import SearchResult
-
-from dotenv import load_dotenv
-import os
-
-
 app = FastAPI()
+search_service = SearchService()
 
-search_service = SearchService() 
-@app.get("/search/", response_model=SearchResult)
-async def search(
-    query: Optional[str] = Query(None, min_length=2, max_length=100),
-    db: AsyncSession = Depends(get_db)
-):
-    if not query:
-        return {
-            "message": "No query provided",
-            "data": SearchResult().model_dump(),
-            "cache": False
-        }
+@app.on_event("startup")
+async def startup_event():
+    try:
+        await cache.init()
+    except HTTPException as e:
+        print(f"Failed to initialize Redis: {e}")
 
-    return await search_service.search(query, db)
-
-
-
-load_dotenv() 
-database_url = os.getenv("DATABASE_URL")
-print(database_url)
-
-
-# Роут для поиска по играм и провайдерам
 @app.get("/search/", response_model=SearchResult)
 async def search(
     query: Optional[str] = Query(
         default=None,
         min_length=2,
         max_length=100,
-        description="Search term (2-100 chars)"
+        description="Поисковый запрос (от 2 до 100 символов)"
     ),
     db: AsyncSession = Depends(get_db)
 ):
-    result = SearchResult()
+    if not query:
+        return {
+            "message": "Поисковый запрос не указан",
+            "data": SearchResult().model_dump(),
+            "cache": False
+        }
 
-    if query:
-        like_pattern = f"%{query}%"
+    return await search_service.search(query, db)
 
-        # Поиск по играм
-        games_stmt = select(Game.id).where(func.lower(Game.title).ilike(func.lower(like_pattern)))
-        games_result = await db.execute(games_stmt)
-        result.games = [row[0] for row in games_result.fetchall()]
-
-        # Поиск по провайдерам
-        providers_stmt = select(Provider.id).where(func.lower(Provider.name).ilike(func.lower(like_pattern)))
-        providers_result = await db.execute(providers_stmt)
-        result.providers = [row[0] for row in providers_result.fetchall()]
-
-    return result
-
-# Простой тестовый маршрут
 @app.get("/")
 def read_root():
     return {"message": "FastAPI + Docker + PostgreSQL"}
+
