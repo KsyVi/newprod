@@ -7,4 +7,10 @@ class SearchResult(BaseModel):
     games: List[int] = []
     providers: List[int] = []
     cache: Optional[bool] = False
+    
+
+class SearchQuery(BaseModel):
+    query: str
+
+
 
