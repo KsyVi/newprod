@@ -1,6 +1,7 @@
 import json
-import ssl
+import asyncio
 
+from fastapi import HTTPException
 from typing import Optional
 
 from aiokafka import AIOKafkaProducer
@@ -8,57 +9,75 @@ from aiokafka import AIOKafkaProducer
 from config import (
     KAFKA_BROKERS, 
     KAFKA_TOPIC,
-    KAFKA_USERNAME,
-    KAFKA_PASSWORD,
-    cert_path,
-    KAFKA_SSL_CHECK_HOSTNAME
 )
 
 class KafkaProducer:
     def __init__(self):
-        self.producer: Optional[AIOKafkaProducer] = None
+        self.producer = None
+        self.topic = KAFKA_TOPIC
+        self.bootstrap_servers = KAFKA_BROKERS
 
-    async def init(self):
-        # SSL/TLS настройки
-        ssl_context = ssl.create_default_context(cafile=cert_path)
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE if not KAFKA_SSL_CHECK_HOSTNAME else ssl.CERT_REQUIRED
-
-        # Конфигурация для подключения к Kafka
-        conf = {
-            'bootstrap_servers': KAFKA_BROKERS,
-            'security_protocol': 'SASL_SSL',
-            'sasl_mechanism': 'PLAIN',
-            'sasl_plain_username': KAFKA_USERNAME,
-            'sasl_plain_password': KAFKA_PASSWORD,
-            'ssl_context': ssl_context,
-        }
-        self.producer = AIOKafkaProducer(**conf)
+    async def start(self):
         try:
+            self.producer = AIOKafkaProducer(
+                bootstrap_servers=self.bootstrap_servers,
+                loop=asyncio.get_running_loop(),
+                acks='all'
+            )
             await self.producer.start()
+            print("Продюсер успешно инициализирован")
+
         except Exception as e:
-            await self.close()  # Ensure the producer is stopped if initialization fails
-            raise RuntimeError(f"Failed to start Kafka producer: {e}")
+            print(f"Непредвиденная ошибка при инициализации Kafka: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Внутренняя ошибка сервера при инициализации Kafka"
+            )
 
-    async def close(self):
-        if self.producer:
-            try:
-                await self.producer.stop()
-            except Exception as e:
-                raise RuntimeError(f"Failed to stop Kafka producer: {e}")
 
-    async def send_search_task(self, search_query):
-        message = json.dumps(search_query).encode('utf-8')
+    async def stop(self):
         try:
-            await self.producer.send_and_wait(KAFKA_TOPIC, message)
-            print(f"Sent message: {message}")
+            if self.producer:
+                await self.producer.stop()
+                print("Продюсер успешно остановлен")
         except Exception as e:
-            raise RuntimeError(f"Error sending message to Kafka: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Непредвиденная ошибка при остановке: {e}"
+            )
 
-    async def check_health(self):
-        # Check if the producer is initialized and started
-        if not self.producer or not self.producer._closed:
-            return True  
-        return False 
+
+    async def send(self, message) -> bool:
+        try:
+            if not self.producer:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Продюсер не инициализирован"
+                )
+            message = json.dumps(message).encode('utf-8')
+            try:
+                await self.producer.send_and_wait(
+                    topic=self.topic,
+                    value=message
+                )
+                print(f"Сообщение успешно отправлено в топик {self.topic}")
+                return True
+
+            except Exception as e:
+                print(f"Непредвиденная ошибка при отправке: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Внутренняя ошибка при отправке сообщения"
+                )
+
+        except HTTPException as e:
+            raise e
+        except Exception as e:
+            print(f"Критическая ошибка: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Произошла неизвестная ошибка"
+            )
+
 
 kafka_producer = KafkaProducer()

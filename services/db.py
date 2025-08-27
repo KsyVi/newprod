@@ -1,13 +1,12 @@
-import asyncpg
-from config import DATABASE_URL 
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
 
-async def get_db_connection():
-    conn = await asyncpg.connect(DATABASE_URL)
-    try:
-        yield conn
-    finally:
-        await conn.close()
+from config import DATABASE_URL
 
-async def save_search_results_to_db(query, games, providers):
 
-    pass
+engine = create_async_engine(DATABASE_URL, pool_size=10, max_overflow=20)
+AsyncSessionLocal = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        yield session
