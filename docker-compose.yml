@@ -1,34 +1,78 @@
-# version: '3.8'
-
 services:
-  db:
-    image: postgres:13
-    environment:
-      POSTGRES_USER: fastapi_user
-      POSTGRES_PASSWORD: fastapi_pass
-      POSTGRES_DB: fastapi_db
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+  search_game_endpoint:
+    container_name: s_g_e
+    restart: always
+    build:
+      context: ./
+      dockerfile: ./Dockerfile
+    command: uvicorn main:app --reload --port 8080 --host 0.0.0.0
     ports:
-      - "5432:5432"
-
-  web:
-    build: .
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-    volumes:
-      - .:/newprod
-    ports:
-      - "8000:8000"
+      - 8080:8080
     depends_on:
-      - db
+      - kafka
     environment:
-      DATABASE_URL: "postgresql+asyncpg://fastapi_user:fastapi_pass@db/fastapi_db"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      REQUEST_TOPIC: user-events
+      ANSWER_TOPIC: response_handler_events
+    networks:
+      - shared_network
 
-  redis:
-    image: redis:7
+
+  kafka:
+    image: bitnami/kafka:2.8.0
+    container_name: kafka
+    restart: always
+    depends_on:
+      - zookeeper
     ports:
-      - "6379:6379"
+      - 9092:9092
+      - 29092:29092
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      ALLOW_PLAINTEXT_LISTENER: yes
+    networks:
+      - shared_network
+    volumes:
+      - kafka_data:/var/lib/kafka/data
 
+  zookeeper:
+    image: bitnami/zookeeper:3.7.0
+    container_name: zookeeper
+    restart: always
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ALLOW_ANONYMOUS_LOGIN: yes
+    ports:
+      - '2181:2181'
+    networks:
+      - shared_network
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    container_name: kafdrop
+    restart: always
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: kafka:9092
+      JVM_OPTS: "-Xms32M -Xmx64M"
+      SERVER_SERVLET_CONTEXTPATH: "/"
+    depends_on:
+      - kafka
+    networks:
+      - shared_network
+
+networks:
+  shared_network:
+    external: true
 
 volumes:
-  postgres_data:
+  kafka_data:

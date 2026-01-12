@@ -1,73 +1,79 @@
-from fastapi import FastAPI, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy import func
-from typing import Optional, List
-from pydantic import BaseModel
-from services.search_service import SearchService
-
-from models import Game, Provider
-from database import get_db  
-
-from schemas import SearchResult
-
-from dotenv import load_dotenv
-import os
-
+import asyncio
+import asyncpg
+import json
+import time
+import uuid
+import logging
+from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Response
+from schemas import SearchQuery
+from cache import cache as redis_cache
+from services.kafka_producer import kafka_producer
 
 app = FastAPI()
 
-search_service = SearchService() 
-@app.get("/search/", response_model=SearchResult)
-async def search(
-    query: Optional[str] = Query(None, min_length=2, max_length=100),
-    db: AsyncSession = Depends(get_db)
+TIMEOUT = 10  # секунды
+
+logger = logging.getLogger("search_handler")
+
+@app.on_event("startup")
+async def startup():
+    await redis_cache.init()
+    await kafka_producer.start()
+
+@app.on_event("shutdown")
+async def shutdown():
+    await kafka_producer.close()
+
+@app.post("/search", response_model=dict)
+async def search_handler(
+    search_query: SearchQuery,
+    response: Response,
 ):
-    if not query:
-        return {
-            "message": "No query provided",
-            "data": SearchResult().model_dump(),
-            "cache": False
-        }
+    start_time = time.perf_counter()
+    logger.info(f"Received search request: {search_query.query}")
 
-    return await search_service.search(query, db)
+    cache_key = f"search:{search_query.query}"
+
+    cached_result = await redis_cache.get(cache_key)
+    if cached_result:
+        response.status_code = 200
+        cached_data = json.loads(cached_result)
+        # games_data = [g['game_id'] for g in cached_data.get('games', [])]
+        # providers_data = [
+        #     p['provider_id'] for p in cached_data.get('providers', [])
+        #     if isinstance(p, dict) and 'provider_id' in p
+        # ]
+
+        # elapsed = time.perf_counter() - start_time
+        # logger.info(f"Cache hit for '{search_query.query}' in {elapsed:.4f}s")
 
 
+        return {"games": cached_data}
+    
 
-load_dotenv() 
-database_url = os.getenv("DATABASE_URL")
-print(database_url)
+    request_id = str(uuid.uuid4())
+    query_data = search_query.dict()
+    query_data["request_id"] = request_id
 
+    await kafka_producer.send(query_data)
+    logger.info(f"Sent to Kafka: {query_data}")
 
-# Роут для поиска по играм и провайдерам
-@app.get("/search/", response_model=SearchResult)
-async def search(
-    query: Optional[str] = Query(
-        default=None,
-        min_length=2,
-        max_length=100,
-        description="Search term (2-100 chars)"
-    ),
-    db: AsyncSession = Depends(get_db)
-):
-    result = SearchResult()
+    polling_start = time.perf_counter()
+    polling_interval = 0.01  # 10ms
 
-    if query:
-        like_pattern = f"%{query}%"
+    while True:
+        cached_result = await redis_cache.get(cache_key)
+        if cached_result:
+            data = json.loads(cached_result)
+            # games = [g["game_id"] for g in data.get("games", [])]
+            # providers = [p["provider_id"] for p in data.get("providers", []) if isinstance(p, dict) and "provider_id" in p]
 
-        # Поиск по играм
-        games_stmt = select(Game.id).where(func.lower(Game.title).ilike(func.lower(like_pattern)))
-        games_result = await db.execute(games_stmt)
-        result.games = [row[0] for row in games_result.fetchall()]
+            return {"games": data}
 
-        # Поиск по провайдерам
-        providers_stmt = select(Provider.id).where(func.lower(Provider.name).ilike(func.lower(like_pattern)))
-        providers_result = await db.execute(providers_stmt)
-        result.providers = [row[0] for row in providers_result.fetchall()]
+        if (time.perf_counter() - polling_start) > TIMEOUT:
+            response.status_code = 504
+            logger.error(f"Search timed out for query: {search_query.query}")
+            raise HTTPException(status_code=504, detail="Search task timed out")
 
-    return result
+        await asyncio.sleep(polling_interval)
 
-# Простой тестовый маршрут
-@app.get("/")
-def read_root():
-    return {"message": "FastAPI + Docker + PostgreSQL"}
